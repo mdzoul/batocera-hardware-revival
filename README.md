@@ -88,22 +88,25 @@ docker compose up -d
 
 ---
 
-### Step 2: Bare-Metal Installation via Network Block Streaming
+### Step 2: Install Batocera on the Revived Laptop
 
-Instead of downloading an 8GB uncompressed image onto a slow USB flash drive, stream Batocera directly across the network onto the laptop's raw internal SATA hard drive or SSD.
+You can run Batocera directly from a USB drive, or permanently install it to the laptop's internal hard drive/SSD.
 
-1. Boot the target laptop using any live Linux USB (Ubuntu, Arch, or a temporary Batocera USB).
-2. Connect to your Wi-Fi or plug in an Ethernet cable.
-3. Identify your target internal drive with `lsblk` (typically `/dev/sda` or `/dev/nvme0n1`).
-4. Run the network streaming pipeline:
+#### Option A: Standard USB Flash (Recommended for Beginners)
+1. **Download Batocera:** Grab the latest official x86_64 image from [batocera.org/download](https://batocera.org/download).
+2. **Flash to USB:** Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) or [BalenaEtcher](https://etcher.balena.io/) to write the image to a USB flash drive (16GB+ recommended).
+3. **Boot Target Laptop:** Plug the USB drive into your revived laptop, power on, and press your boot menu key (`F12` on ThinkPads, `F9` on HP, `F12` on Dell) to select the USB drive.
 
-```bash
-curl -s -L https://mirrors.o2switch.fr/batocera/x86_64/stable/last/batocera-x86_64-43.1-20260529.img.gz \
-  | gzip -dc \
-  | dd of=/dev/sda bs=4M status=progress conv=fsync && sync
-```
+#### Option B: Built-in GUI Installer (Permanent Internal HDD/SSD Installation)
+If you want to run Batocera natively on the laptop's internal drive without needing the USB thumb drive permanently plugged in:
+1. Boot into the Batocera Live USB (from Option A above).
+2. Connect to your Wi-Fi under **Network Settings**.
+3. Press `Space` (or `Start` on a controller) to open the Main Menu.
+4. Navigate to **System Settings** -> **Install Batocera on a new disk**.
+5. Select your internal disk (e.g. `Internal SATA 500GB`) and target architecture (`x86_64`), then select **Install**. Batocera will automatically download the latest official image and flash the internal drive cleanly.
+6. Once complete, unplug the USB drive and reboot!
 
-5. Remove the live rescue USB and reboot. Batocera will expand its partition automatically to fill the entire internal drive.
+> **💡 Power User Alternative:** For headless homelabbers who prefer streaming disk images over the network via CLI pipelines (`curl | gzip | dd`), see [`docs/BARE_METAL_INSTALLATION.md`](docs/BARE_METAL_INSTALLATION.md).
 
 ---
 
