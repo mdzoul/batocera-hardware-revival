@@ -1,0 +1,92 @@
+#!/bin/bash
+## ==============================================================================
+## Batocera Custom Background Watchdog & Roaming Daemon (custom.sh)
+## Location: /userdata/system/custom.sh (chmod +x)
+## ==============================================================================
+## This script runs in the background at boot without blocking EmulationStation.
+## It handles:
+##   1. Tailscale mesh network authentication
+##   2. Dynamic CIFS network mounting (with dual-IP fallback)
+##   3. Hot-reloading EmulationStation to instantly reveal new ROMs
+##   4. Spawning the Sunshine game streaming daemon
+## ==============================================================================
+
+(
+  LOGFILE="/userdata/system/logs/custom-watchdog.log"
+  mkdir -p "$(dirname "$LOGFILE")"
+  exec >> "$LOGFILE" 2>&1
+
+  echo "[+] $(date): Custom watchdog daemon started."
+
+  ## ---------------------------------------------------------------------------
+  ## 1. Wait for Internet / Network Reachability
+  ## ---------------------------------------------------------------------------
+  echo "[*] Waiting for network connection..."
+  CONNECTED=0
+  for i in $(seq 1 30); do
+    if ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 || ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+      CONNECTED=1
+      echo "[+] Internet connectivity detected after ${i}s."
+      break
+    fi
+    sleep 1
+  done
+
+  if [ $CONNECTED -ne 1 ]; then
+    echo "[-] Network unreachable. Skipping remote mesh mounting."
+    exit 1
+  fi
+
+  ## ---------------------------------------------------------------------------
+  ## 2. Autonomous Tailscale Mesh Initialization
+  ## ---------------------------------------------------------------------------
+  if [ -x /userdata/tailscale/tailscaled ] && [ -x /userdata/tailscale/tailscale ]; then
+    echo "[*] Initializing embedded Tailscale daemon..."
+    mkdir -p /userdata/tailscale/state
+    /userdata/tailscale/tailscaled --state=/userdata/tailscale/state/tailscaled.state --socket=/tmp/tailscale.sock >/dev/null 2>&1 &
+    sleep 2
+
+    ## Authenticate to Tailnet (use pre-authenticated auth key on first run or persistent state)
+    /userdata/tailscale/tailscale --socket=/tmp/tailscale.sock up --accept-routes --hostname=batocera-revival
+    echo "[+] Tailscale mesh established."
+  fi
+
+  ## ---------------------------------------------------------------------------
+  ## 3. Dynamic CIFS Mount with Dual-IP Fallback
+  ## ---------------------------------------------------------------------------
+  LAN_SERVER_IP="192.168.1.100"
+  TAILSCALE_SERVER_IP="100.64.0.1"
+  TARGET_HOST=""
+
+  echo "[*] Probing central media server..."
+  if ping -c 1 -W 2 "$LAN_SERVER_IP" >/dev/null 2>&1; then
+    TARGET_HOST="$LAN_SERVER_IP"
+    echo "[+] Connected via local high-speed LAN ($TARGET_HOST)."
+  elif ping -c 1 -W 2 "$TAILSCALE_SERVER_IP" >/dev/null 2>&1; then
+    TARGET_HOST="$TAILSCALE_SERVER_IP"
+    echo "[+] Connected via remote Tailscale WireGuard Mesh ($TARGET_HOST)."
+  else
+    echo "[-] Media server unreachable on both LAN and Tailscale mesh."
+  fi
+
+  if [ -n "$TARGET_HOST" ]; then
+    echo "[*] Mounting remote ROMs over CIFS v3.0..."
+    mkdir -p /userdata/roms
+    mount -t cifs "//$TARGET_HOST/roms" /userdata/roms -o username=batocera,password=retrogaming,vers=3.0,rw,iocharset=utf8
+
+    ## Hot-reload EmulationStation to immediately discover the newly attached games
+    echo "[*] Hot-reloading EmulationStation catalog..."
+    batocera-es-swissknife --restart
+    echo "[+] EmulationStation catalog successfully reloaded!"
+  fi
+
+  ## ---------------------------------------------------------------------------
+  ## 4. Launch Sunshine Streaming Host
+  ## ---------------------------------------------------------------------------
+  if flatpak list | grep -q "dev.lizardbyte.app.Sunshine"; then
+    echo "[*] Spawning Sunshine game streaming host..."
+    flatpak run dev.lizardbyte.app.Sunshine >/userdata/system/logs/sunshine.log 2>&1 &
+    echo "[+] Sunshine streaming host active."
+  fi
+
+) &

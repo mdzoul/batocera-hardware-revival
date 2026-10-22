@@ -1,0 +1,51 @@
+## ==============================================================================
+## Batocera Boot Configuration Template (batocera-boot.conf)
+## Location: /boot/batocera-boot.conf (or root of FAT32 boot partition)
+## ==============================================================================
+
+## -----------------------------------------------------------------------------
+## 1. Storage Decoupling Mode
+## -----------------------------------------------------------------------------
+## For dedicated stationary consoles on your home LAN:
+##   Set sharedevice=NETWORK to mount central SMB shares during early boot.
+##
+## For portable live USB drives:
+##   Set sharedevice=INTERNAL and use the autonomous custom.sh watchdog
+##   to prevent boot stalls when roaming outside your home Wi-Fi.
+## -----------------------------------------------------------------------------
+sharedevice=NETWORK
+
+## Seconds to wait for network interface initialization before mounting shares
+sharewait=10
+
+## -----------------------------------------------------------------------------
+## 2. Central Homelab SMB / CIFS Network Mounts
+## Format: <MOUNT_POINT>@<SERVER_IP>:<SHARE_NAME>:username=<USER>,password=<PASS>
+## Note: <SERVER_IP> can be your LAN IP (e.g. 192.168.1.100) or Tailscale Mesh IP (e.g. 100.64.0.1)
+## -----------------------------------------------------------------------------
+## ROMs share (Must have read/write access so EmulationStation saves state/RAM)
+sharenetwork_smb1=ROMS@192.168.1.100:roms:username=batocera,password=retrogaming
+
+## Official BIOS vault
+sharenetwork_smb2=BIOS@192.168.1.100:bios:username=batocera,password=retrogaming
+
+## Optional: Scraped Box Art, Fanart, and Video Previews
+# sharenetwork_smb3=SAVES@192.168.1.100:saves:username=batocera,password=retrogaming
+# sharenetwork_smb4=EXTRA@192.168.1.100:extra:username=batocera,password=retrogaming
+
+## -----------------------------------------------------------------------------
+## 3. Host Drive Protection & Anti-LUKS Probe (CRITICAL FOR LIVE USB)
+## -----------------------------------------------------------------------------
+## By default, Batocera scans all attached block storage for LUKS partitions.
+## If plugged into a modern laptop with BitLocker or Linux LUKS encryption,
+## Batocera halts boot and prompts for a drive password on tty3.
+## Explicitly setting luks.enabled=0 bypasses this probe completely.
+## -----------------------------------------------------------------------------
+luks.enabled=0
+
+## -----------------------------------------------------------------------------
+## 4. Video & Display Defaults (Headless / Clamshell Tuning)
+## -----------------------------------------------------------------------------
+## Force standard HDMI audio output if not using Sunshine streaming:
+# audio.device=auto
+# es.resolution=max

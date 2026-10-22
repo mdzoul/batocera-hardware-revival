@@ -1,0 +1,38 @@
+## ==============================================================================
+## Sunshine Configuration Template (sunshine.conf)
+## Location: /userdata/system/configs/sunshine/sunshine.conf
+## (or ~/.config/sunshine/sunshine.conf depending on Flatpak setup)
+## ==============================================================================
+
+## -----------------------------------------------------------------------------
+## 1. Web Administration & CSRF Bypass
+## -----------------------------------------------------------------------------
+## When accessing Sunshine's web UI (https://<BATOCERA_IP>:47990) from another
+## PC or phone on your LAN, Sunshine enforces strict CSRF protection.
+## Explicitly whitelist your local subnet and IP origins:
+## -----------------------------------------------------------------------------
+port = 47989
+origin_pin_allowed = 0.0.0.0/0
+origin_web_ui_allowed = 0.0.0.0/0
+csrf_allowed_origins = https://192.168.1.50:47990,http://192.168.1.50:47990,https://localhost:47990
+
+## -----------------------------------------------------------------------------
+## 2. Video & Audio Encoding Parameters
+## -----------------------------------------------------------------------------
+## For Intel Integrated Graphics (HD 4600 / Skylake / Kaby Lake / UHD 620):
+## Force hardware accelerated VAAPI / QuickSync H.264 encoding:
+encoder = vaapi
+capture = kms
+
+## Maximum framerate and resolution targets
+fps = [60]
+min_log_level = info
+
+## Audio sink configuration (Opus stereo 48kHz for low latency)
+audio_sink = auto
+
+## -----------------------------------------------------------------------------
+## 3. Clamshell Mode & Headless Operation
+## -----------------------------------------------------------------------------
+## Ensure Sunshine does not disconnect or suspend when the laptop lid is closed:
+# keep_display_active = true

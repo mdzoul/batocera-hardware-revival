@@ -1,0 +1,37 @@
+services:
+  ## ============================================================================
+  ## Dedicated Samba (SMB/CIFS) Server for Batocera Network Shares
+  ## ============================================================================
+  ## Exposes your central ROM library, BIOS directory, and saves folder
+  ## over your local home network with proper user permissions.
+  ## ============================================================================
+  romm-samba:
+    image: dperson/samba:latest
+    container_name: romm-samba
+    restart: unless-stopped
+    ports:
+      - "139:139"
+      - "445:445"
+    environment:
+      - TZ=America/New_York
+      - USERID=1000
+      - GROUPID=1000
+    volumes:
+      ## Path to your central RomM or retro library on your media server:
+      - /mnt/storage/games/roms:/mount/roms:rw
+      - /mnt/storage/games/bios:/mount/bios:rw
+      - /mnt/storage/games/saves:/mount/saves:rw
+    command: >
+      -u "batocera;retrogaming"
+      -s "roms;/mount/roms;yes;no;no;batocera"
+      -s "bios;/mount/bios;yes;no;no;batocera"
+      -s "saves;/mount/saves;yes;no;no;batocera"
+      -g "inherit permissions = yes"
+      -g "force create mode = 0775"
+      -g "force directory mode = 0775"
+    networks:
+      - homelab-net
+
+networks:
+  homelab-net:
+    external: true

@@ -1,0 +1,42 @@
+#!/bin/bash
+## ==============================================================================
+## Bare-Metal Batocera Direct Network Block Stream Flasher
+## ==============================================================================
+## Flashes Batocera.linux directly across the local network into raw internal
+## SATA/NVMe storage (/dev/sda or /dev/nvme0n1) without needing intermediate
+## local USB staging storage or uncompressed image files.
+##
+## RUN THIS FROM A LIVE USB ENVIRONMENT OR RESCUE LINUX OS.
+## WARNING: THIS WILL OVERWRITE ALL DATA ON TARGET_DISK!
+## ==============================================================================
+
+set -euo pipefail
+
+TARGET_DISK="${1:-/dev/sda}"
+IMAGE_URL="${2:-https://mirrors.o2switch.fr/batocera/x86_64/stable/last/batocera-x86_64-43.1-20260529.img.gz}"
+
+echo "======================================================================"
+echo " ⚠️  WARNING: BARE-METAL DISK FLASHING IN PROGRESS"
+echo " Target Disk: $TARGET_DISK"
+echo " Image Source: $IMAGE_URL"
+echo "======================================================================"
+echo "Press Ctrl+C within 5 seconds to abort..."
+sleep 5
+
+echo "[*] Unmounting any existing partitions on $TARGET_DISK..."
+umount ${TARGET_DISK}* 2>/dev/null || true
+
+echo "[*] Streaming compressed image and writing directly to block device..."
+curl -s -L "$IMAGE_URL" | gzip -dc | dd of="$TARGET_DISK" bs=4M status=progress conv=fsync
+
+echo "[*] Synchronizing disk writes to physical medium..."
+sync
+
+echo "[+] Disk flashing complete!"
+echo "[*] Target partition layout:"
+parted -s "$TARGET_DISK" print
+
+echo "======================================================================"
+echo " You may now remove the rescue USB and power cycle the machine."
+echo " Batocera will expand its userdata partition automatically on first boot."
+echo "======================================================================"
