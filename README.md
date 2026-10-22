@@ -12,23 +12,6 @@
 
 ---
 
-## 💡 The Philosophy: Compute is Disposable, State is Sacred
-
-Old laptops—like a 4th-gen **ThinkPad T440p**, a retired office Dell Latitude, or a dusty HP Pavillion—are phenomenal emulation powerhouses. With sturdy cooling and capable integrated Intel HD Graphics, they run everything from NES, GBA, and PS1 up to N64, Dreamcast, and PSP at full speed.
-
-However, running retro games entirely on a 10-to-15-year-old laptop has a fatal flaw: **Hardware mortality**.
-* Aging spinning hard drives (`2.5" SATA`) suffer mechanical failure.
-* Motherboards, charging ports, or solder joints die without warning.
-* If your ROM library, BIOS vault, and 60-hour RPG save files live on that laptop's internal disk, **when the machine dies, your childhood memories and progress die with it.**
-
-This guide demonstrates a **Decoupled Retro Architecture**:
-1. **Ephemeral Compute:** The laptop runs [Batocera.linux](https://batocera.org/) strictly as a stateless compute engine. If the laptop smokes tomorrow, you grab any other spare laptop or desktop, plug in Batocera, and pick up right where you left off.
-2. **Sovereign Storage:** All game ROMs, official BIOS files, scrapings, and save states are housed on your central home server (e.g., TrueNAS, Unraid, or an Intel NUC running [RomM](https://github.com/rommapp/romm) and Samba/CIFS) with automated RAID/ZFS snapshots and offsite backups.
-3. **Wireless Living Room Gaming (Sunshine + Moonlight):** Instead of stringing long, hazardous HDMI cables across your living room floor, the laptop operates in silent **clamshell mode** (closed lid) tucked away near your router. It encodes low-latency 60fps video via **Sunshine** and streams over Wi-Fi directly to a **Moonlight** client on an Amazon Fire TV Stick, Google TV Chromecast, Apple TV, or Smart TV.
-4. **Autonomous Tailscale Roaming:** Whether taking a portable live USB to a friend's house or traveling with a revived laptop, an embedded background watchdog connects to your home [Tailscale](https://tailscale.com/) mesh, mounts your central ROM library over WireGuard, and hot-reloads EmulationStation automatically.
-
----
-
 ## 🏛️ System Architecture
 
 ```mermaid
@@ -59,40 +42,187 @@ flowchart LR
 
 ---
 
-## 🧪 Experimental Track: Portable Roaming Live USB (Community RFC)
+## 🚀 Complete Step-by-Step Setup Guide
 
-In addition to the primary living-room clamshell setup, we have been experimenting with a **Portable Batocera Live USB** to take on the road:
-* **The Vision:** Boot any modern x86 UEFI laptop into Batocera on hotel/guest Wi-Fi and dynamically mount your central home ROM library over a private **Tailscale** WireGuard mesh.
-* **What Works:** Setting `luks.enabled=0` completely stops Batocera from probing or prompting for passwords on host encrypted NVMe drives (BitLocker / LUKS).
-* **Current Friction:** Tailscale daemon persistence on Batocera's read-only SquashFS, captive portal Wi-Fi delays, and CIFS mount timeouts over variable high-latency networks make this an open work-in-progress.
-
-👉 Check out the [Tailscale Roaming Guide](docs/TAILSCALE_ROAMING_GUIDE.md) and join our open RFC to help refine the roaming scripts!
+Follow this end-to-end walkthrough to turn any retired laptop into a headless living-room retro console.
 
 ---
 
-## 🔌 Why Sunshine + Moonlight Beats HDMI Cables
+### Step 1: Central Storage Setup (Homelab Server / NAS)
 
-Running an HDMI cable from a laptop to the living room TV sounds easy until reality sets in:
+Expose your game ROMs, BIOS files, and saves directory via a dedicated Samba (`SMB/CIFS`) container with read and write permissions (so Batocera can write save states back to the server).
+
+Create a `docker-compose.yml` on your media server:
+
+```yaml
+services:
+  romm-samba:
+    image: dperson/samba:latest
+    container_name: romm-samba
+    restart: unless-stopped
+    ports:
+      - "139:139"
+      - "445:445"
+    environment:
+      - TZ=America/New_York
+      - USERID=1000
+      - GROUPID=1000
+    volumes:
+      - /mnt/storage/games/roms:/mount/roms:rw
+      - /mnt/storage/games/bios:/mount/bios:rw
+      - /mnt/storage/games/saves:/mount/saves:rw
+    command: >
+      -u "batocera;retrogaming"
+      -s "roms;/mount/roms;yes;no;no;batocera"
+      -s "bios;/mount/bios;yes;no;no;batocera"
+      -s "saves;/mount/saves;yes;no;no;batocera"
+      -g "inherit permissions = yes"
+      -g "force create mode = 0775"
+      -g "force directory mode = 0775"
+```
+
+Start the service:
+```bash
+docker compose up -d
+```
+
+---
+
+### Step 2: Bare-Metal Installation via Network Block Streaming
+
+Instead of downloading an 8GB uncompressed image onto a slow USB flash drive, stream Batocera directly across the network onto the laptop's raw internal SATA hard drive or SSD.
+
+1. Boot the target laptop using any live Linux USB (Ubuntu, Arch, or a temporary Batocera USB).
+2. Connect to your Wi-Fi or plug in an Ethernet cable.
+3. Identify your target internal drive with `lsblk` (typically `/dev/sda` or `/dev/nvme0n1`).
+4. Run the network streaming pipeline:
+
+```bash
+curl -s -L https://mirrors.o2switch.fr/batocera/x86_64/stable/last/batocera-x86_64-43.1-20260529.img.gz \
+  | gzip -dc \
+  | dd of=/dev/sda bs=4M status=progress conv=fsync && sync
+```
+
+5. Remove the live rescue USB and reboot. Batocera will expand its partition automatically to fill the entire internal drive.
+
+---
+
+### Step 3: Decouple Storage via Network Mount (`batocera-boot.conf`)
+
+Configure Batocera to mount your central server shares automatically on boot.
+
+Edit `/boot/batocera-boot.conf` (or edit it directly on the FAT32 boot partition):
+
+```ini
+## Enable network storage mode
+sharedevice=NETWORK
+sharewait=10
+
+## Mount central SMB shares (Use LAN IP e.g. 192.168.1.100 or Tailscale IP e.g. 100.64.0.1)
+sharenetwork_smb1=ROMS@192.168.1.100:roms:username=batocera,password=retrogaming
+sharenetwork_smb2=BIOS@192.168.1.100:bios:username=batocera,password=retrogaming
+
+## Inhibit host drive LUKS discovery (prevents password prompts on encrypted drives)
+luks.enabled=0
+```
+
+Reboot Batocera. All ROMs, BIOS files, and existing save states will appear in EmulationStation!
+
+---
+
+### Step 4: Headless Sunshine Streaming Host Setup
+
+1. **SSH into Batocera:**
+   ```bash
+   ssh root@<BATOCERA_IP>
+   # Default password is: linux
+   ```
+
+2. **Install Sunshine via Flatpak:**
+   ```bash
+   flatpak install --system dev.lizardbyte.app.Sunshine
+   ```
+
+3. **Configure Headless Web UI & Encoder Settings:**  
+   Edit `/userdata/system/configs/sunshine/sunshine.conf`:
+   ```ini
+   port = 47989
+   origin_pin_allowed = 0.0.0.0/0
+   origin_web_ui_allowed = 0.0.0.0/0
+   csrf_allowed_origins = https://<BATOCERA_IP>:47990,http://<BATOCERA_IP>:47990,https://localhost:47990
+
+   # Intel VAAPI hardware acceleration (QuickSync)
+   encoder = vaapi
+   capture = kms
+   fps = [60]
+   audio_sink = auto
+   ```
+
+4. **Autostart Sunshine on Boot:**  
+   Add the following line to `/userdata/system/custom.sh`:
+   ```bash
+   mkdir -p /userdata/system/logs
+   flatpak run dev.lizardbyte.app.Sunshine > /userdata/system/logs/sunshine.log 2>&1 &
+   ```
+   Ensure it is executable:
+   ```bash
+   chmod +x /userdata/system/custom.sh
+   ```
+
+---
+
+### Step 5: Direct Controller Pairing & Moonlight TV Client
+
+1. **Pair Wireless Controllers Directly to Batocera:**  
+   * Navigate to **Controller & Bluetooth Settings** -> **Pair a Bluetooth Device** on Batocera.
+   * Put your controller (8BitDo, Xbox Wireless, PS4/PS5 DualShock) into pairing mode.
+   * *Why:* Direct pairing to Batocera's Linux kernel provides sub-millisecond input response, full haptic rumble, and global emulator hotkeys (`Hotkey + Start` to exit, `Hotkey + Y` to save state).
+2. **Install Moonlight on Your TV Device:**  
+   * Install **Moonlight Game Streaming** from the App Store on your Amazon Fire TV Stick, Google TV Chromecast, or Apple TV.
+   * Open Moonlight; it will automatically discover your Batocera Sunshine host.
+   * Select the host to generate a **4-digit PIN**.
+3. **Authorize the PIN:**  
+   * Open `https://<BATOCERA_IP>:47990` in your phone or PC browser.
+   * Navigate to the **PIN** tab, enter the 4-digit code, and click Send.
+4. **Close the Laptop Lid (Clamshell Mode):**  
+   Tuck the laptop away in a console or shelf. Launch Moonlight on the TV and enjoy 60fps wireless retro gaming!
+
+---
+
+## 💡 Why This Architecture?
+
+### 1. The Core Philosophy: "Hardware is Ephemeral, Memory is Sovereign"
+Old laptops (like a 4th-gen **ThinkPad T440p**) are amazing emulation machines, but their aging internal hardware will eventually fail:
+* Old 2.5" spinning hard drives suffer mechanical failure.
+* Motherboards, charging ports, or solder joints die without warning.
+* If your ROMs and 60-hour RPG save files live on that laptop's internal disk, **when the machine dies, your childhood memories and save files die with it.**
+
+**The Decoupled Solution:**
+* **Compute is Disposable:** The revived laptop is treated as a stateless compute worker. If the laptop smokes tomorrow, you grab any other spare laptop or mini-PC, flash Batocera, and plug it in.
+* **State is Sovereign:** All game ROMs, BIOS files, and save files live on your central NAS with automated ZFS/RAID snapshots and offsite backups. Your saves are never lost.
+
+### 2. Why Sunshine + Moonlight Beats HDMI Cables
+Running an HDMI cable from a laptop to the living room TV is a hassle:
 * **The Trip Hazard:** A 10-meter HDMI cable running across carpets and hallways gets stepped on by pets and family members.
-* **Controller Range Limitations:** Standard 2.4GHz USB wireless dongles or laptop Bluetooth struggle through walls and furniture when the laptop is placed far away.
+* **Controller Range Issues:** Standard 2.4GHz USB dongles or laptop Bluetooth struggle through walls and furniture when the laptop is far away.
 * **Wasted Space:** You need a table or stand next to the TV just to hold an open laptop.
 
-### The Headless Streaming Alternative:
-1. **Closed-Lid Clamshell Operation:** The laptop sits closed, stacked neatly in a server closet, tv console cubby, or next to your network switch.
-2. **Direct Gamepad Bluetooth Pairing to Batocera:** Pair your Bluetooth controllers directly to the ThinkPad running Batocera. This provides native Linux kernel controller polling, sub-millisecond input response, full rumble vibration, and authentic emulator hotkeys (Quick Save, Rewind, Fast-Forward) without the latency or button-mapping limitations of TV stick Bluetooth stacks. The TV stick acts purely as a low-latency video and audio receiver.
-3. **Pristine Picture Quality:** Hardware-accelerated H.264 video streaming over 5GHz Wi-Fi or gigabit Ethernet delivers a crisp 1080p/60fps picture that looks identical to a native HDMI connection.
+**The Streaming Advantage:**
+* The laptop runs silently with its lid closed (**clamshell mode**), tucked into a TV console or network closet.
+* Streams hardware-accelerated 1080p/60fps video over 5GHz Wi-Fi with sub-frame encoding latency.
+* The TV stick acts purely as an audio/video display receiver.
 
 ---
 
-## 📂 Repository Layout
+## 📂 Repository Layout & Deep Dives
 
 ```text
 .
 ├── README.md                                  # You are here
 ├── LICENSE                                    # MIT License
 ├── configs/
-│   ├── batocera-boot.conf.example             # Network mount & LUKS bypass config
-│   ├── sunshine.conf.example                  # Headless Sunshine web UI & CSRF fixes
+│   ├── batocera-boot.conf.example             # Network mount & anti-LUKS config
+│   ├── sunshine.conf.example                  # Headless Sunshine web UI & CSRF bypass
 │   └── romm-samba.docker-compose.yml.example  # Central server SMB share for RomM
 ├── docs/
 │   ├── ARCHITECTURE.md                        # Deep dive into stateless emulation architecture
@@ -106,43 +236,14 @@ Running an HDMI cable from a laptop to the living room TV sounds easy until real
 
 ---
 
-## 🚀 Quick Setup Overview
+## 🧪 Experimental Track: Portable Roaming Live USB (Community RFC)
 
-### 1. Central Storage (Homelab Server)
-Ensure your central server exposes your ROMs and BIOS directory via Samba (`SMB/CIFS`) with read and write permissions (so Batocera can write save states back to the server):
-* Review [`configs/romm-samba.docker-compose.yml.example`](configs/romm-samba.docker-compose.yml.example).
+In addition to the primary living-room clamshell setup, we have been experimenting with a **Portable Batocera Live USB** to take on the road:
+* **The Vision:** Boot any modern x86 UEFI laptop into Batocera on hotel/guest Wi-Fi and dynamically mount your central home ROM library over a private **Tailscale** WireGuard mesh.
+* **What Works:** Setting `luks.enabled=0` completely stops Batocera from probing or prompting for passwords on host encrypted NVMe drives (BitLocker / LUKS).
+* **Current Friction:** Tailscale daemon persistence on Batocera's read-only SquashFS, captive portal Wi-Fi delays, and CIFS mount timeouts over variable high-latency networks make this an open work-in-progress.
 
-### 2. Configure Batocera Network Mounting
-In `/boot/batocera-boot.conf`:
-```ini
-sharedevice=NETWORK
-sharewait=10
-sharenetwork_smb1=ROMS@192.168.1.100:roms:username=batocera,password=retrogaming
-sharenetwork_smb2=BIOS@192.168.1.100:bios:username=batocera,password=retrogaming
-```
-*(See [`configs/batocera-boot.conf.example`](configs/batocera-boot.conf.example) for detailed options)*.
-
-### 3. Deploy Sunshine Host on Batocera
-1. Install Sunshine via Flatpak:
-   ```bash
-   flatpak install --system dev.lizardbyte.app.Sunshine
-   ```
-2. Enable headless web admin access and bypass CSRF blocks by updating `sunshine.conf`.
-3. Auto-start Sunshine on boot by symlinking or invoking it in `/userdata/system/custom.sh`.
-4. Install **Moonlight** on your streaming TV stick, enter the PIN, and map your gamepads.
-*(See [`docs/SUNSHINE_MOONLIGHT_STREAMING.md`](docs/SUNSHINE_MOONLIGHT_STREAMING.md) for full instructions)*.
-
-### 4. Enable Autonomous Tailscale Roaming
-If using a portable live USB or roaming on different networks:
-1. Prevent Batocera from halting boot on encrypted host laptops:
-   ```ini
-   luks.enabled=0
-   ```
-2. Deploy our lightweight background watchdog in `/userdata/system/custom.sh` to establish Tailscale, fall back to Mesh IPs, and hot-reload EmulationStation:
-   ```bash
-   batocera-es-swissknife --restart
-   ```
-*(See [`docs/TAILSCALE_ROAMING_GUIDE.md`](docs/TAILSCALE_ROAMING_GUIDE.md))*.
+👉 Check out the [Tailscale Roaming Guide](docs/TAILSCALE_ROAMING_GUIDE.md) and join our open RFC to help refine the roaming scripts!
 
 ---
 
